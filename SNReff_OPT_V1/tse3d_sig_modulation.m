@@ -1,17 +1,16 @@
-function [mtf,s0,psf,fwhm,FA] = ...
-    tse3d_sig_modulation(esp,tsefactor_bds,shot_ratio_bds,T1,T2,sav)
+function [mtf_xy,s0,psf,fwhm,FA] = ...
+    tse3d_sig_modulation(FOV,vox,esp,tsefactor_max,T1,T2)
 
 % Description:
-%   Signal modulation of 3D TSE using in a selected parameter space.
+%   Signal modulation of 3D TSE in a selected parameter space.
 %   Assumes low-high profile order
 % 
 % Input:
+% - FOV = 3x1 vector with dimensions of the field of view in all three
+%   directions in the order M, P, S
+% - vox = 3x1 vector with voxel dimensions in the order M, P, S
 % - esp = echo spacing (ms)
-% - tsefactor_bds = 2x1 vector containing lower and upper bounds of TSE
-%   factor values to be examined
-% - shot_ratio_bds = 2x1 vector containing lower and upper bounds of the
-%   ratio of the shot duration which defines the signal plateau durations to
-%   be examined
+% - tsefactor_max = maximum TSE factor allowed for the given geometry
 % - T1, T2 = relaxation times of reference tissue (ms)
 % 
 % Output:
@@ -28,114 +27,78 @@ function [mtf,s0,psf,fwhm,FA] = ...
 % September 2015
 
 % Define arrays which define variable parameter space:
-tsefactor_array = min(tsefactor_bds):1:max(tsefactor_bds);
-shot_ratio_array = min(shot_ratio_bds):0.05:max(shot_ratio_bds);
+% tsefactor_array = min(tsefactor_bds):1:max(tsefactor_bds);
+% shot_ratio_array = min(shot_ratio_bds):0.05:max(shot_ratio_bds);
+nr_kyz_pts = FOV(2)/vox(2) * FOV(3)/vox(3);
 
 % Constant parameters:
 maxangles = [120,160]; % assumes fixed center and max angles (here default)
 startupechoes = 5; % assumes a fixed number of startup echoes
-esp_first = 3*esp;
+esp_first = 3*esp; % if ultrashort = ultra
+shot_ratio = 0.4; % fraction of shot duration of plateau length 
 
-% Enable parallel computing only for large arrays:
-par = 0;
-nr_iterations = length(tsefactor_array)*length(shot_ratio_array);
-if nr_iterations > 100
-    par = 1;
-end
-if par
-    poolobj = gcp('nocreate');
-    if isempty(poolobj)
-        parpool; % requires parallel pool
-        pause(15) % wait 15 seconds
-    end
-end
+% Define range of TSE factor:
+tsefactor_range = 2:tsefactor_max;
 
-s0 = zeros(length(tsefactor_array),length(shot_ratio_array));
-mtf = cell(length(tsefactor_array),length(shot_ratio_array));
-psf = cell(length(tsefactor_array),length(shot_ratio_array));
-fwhm = zeros(length(tsefactor_array),length(shot_ratio_array));
-FA = cell(length(tsefactor_array),length(shot_ratio_array));
+for ii = 1:length(tsefactor_range)
+tsefactor = tsefactor_range(ii);
+% Define remaining parameters:
+nr_refoc_pulses = startupechoes + tsefactor;
+esp_vec = [esp_first ones(1,startupechoes+tsefactor)*esp];
+shot_dur = 4.42 + esp_first + esp/2 + esp*(nr_refoc_pulses - 3); % see below
+% RFex_posn = constant = 4.4172 ms
+% nr_echoes = nr_refoc_pulses - 1
+% nr_ME_echos = nr_echoes - 1 = nr_refoc_pulses - 2
+% nr_ME_echo_spacings = nr_ME_echoes - 1 = nr_refoc_pulses - 3
+nr_shots = floor(nr_kyz_pts/nr_refoc_pulses);
+% T1 recovery in interval between shots:
+t_recv = 1.5*T1; % delay after last refocusing pulse and next excitation pulse
+m0_frac = 1 - exp(-t_recv/T1); % fraction of M0 for remaining shots
+% Set TR:
+TR = shot_dur + t_recv;
 
-for ii=1:length(tsefactor_array)    
-    tsefactor = tsefactor_array(ii);
-    if par
-        parfor jj=1:length(shot_ratio_array)
-            shot_ratio = shot_ratio_array(jj);
-            esp_vec = [esp_first ones(1,startupechoes+tsefactor)*esp];
-            nr_refoc_pulses = startupechoes + tsefactor;
-            shot_dur = 4.42 + esp_first + esp/2 + esp*(nr_refoc_pulses - 3);
-            % ex_shift = constant = 4.4172 ms
-            % nr_echoes = nr_refoc_pulses - 1
-            % nr_ME_echoes = nr_echoes - 1 = nr_refoc_pulses - 2
-            [s0_out,mtf_out,psf_out,fwhm_out,FA_out] = ...
-                signal_centerkspace(maxangles,esp_vec,shot_dur,...
-                shot_ratio,T1,T2,startupechoes,tsefactor);
-            s0(ii,jj) = s0_out;
-            mtf{ii,jj} = mtf_out;
-            psf{ii,jj} = psf_out;
-            fwhm(ii,jj) = fwhm_out;
-            FA{ii,jj} = FA_out;
-        end
-    else
-        for jj=1:length(shot_ratio_array)
-            shot_ratio = shot_ratio_array(jj);
-            esp_vec = [esp_first ones(1,startupechoes+tsefactor)*esp];
-            nr_refoc_pulses = startupechoes + tsefactor;
-            shot_dur = 4.42 + esp_first + esp/2 + esp*(nr_refoc_pulses - 3);
-            % ex_shift = constant = 4.4172 ms
-            % nr_echoes = nr_refoc_pulses - 1
-            % nr_ME_echoes = nr_echoes - 1 = nr_refoc_pulses - 2
-            [s0_out,mtf_out,psf_out,fwhm_out,FA_out] = ...
-                signal_centerkspace(maxangles,esp_vec,shot_dur,...
-                shot_ratio,T1,T2,startupechoes,tsefactor);
-            s0(ii,jj) = s0_out;
-            mtf{ii,jj} = mtf_out;
-            psf{ii,jj} = psf_out;
-            fwhm(ii,jj) = fwhm_out;
-            FA{ii,jj} = FA_out;
-        end
-    end
-    fclose('all'); % close all open files
-end
-if par
-    delete(poolobj); % shut down parallel pool
-    pause(5) % wait 5 seconds
+% First shot:
+[s0_shot1,mtf_xy_shot1,~,~,FA,mtf_z_shot1] = ...
+signal_centerkspace(maxangles,esp_vec,shot_dur,...
+shot_ratio,T1,T2,startupechoes,tsefactor);
+
+% Remaining shots:
+[mtf_xy_shot2,mtf_z_shot2] = epg_forward(FA,length(FA),esp_vec,T1,T2,m0_frac);
+s0_shot(2) = mtf_xy_shot(startupechoes + 1)*sqrt(esp-2);
+
+% Set a minimum acceptable SNR considering diffusion effects:
+% ...
+
+% Calculate SNR efficiency:
+% ...
+
+% Store values:
+% SNReff(ii) = ...
+
 end
 
-% Create plots:
-figure
-[C,h]=contourf(shot_ratio_array,tsefactor_array,s0,'LineColor','none');
-colormap(gray)
-clabel(C,h,'FontSize',24,'Color','w','Rotation',0,'LabelSpacing',500)
-set(gca,'Fontsize',16)
-set(gcf,'color','w')
-xlabel('Shot ratio (ms)','fontsize',18), ylabel('TSE factor','fontsize',18)
-
-if sav
-    save([date,'optSNReff','.mat'],'maxangles','startupechoes','esp',...
-        'T1','T2', 's0','psf','fwhm','tsefactor_array','shot_ratio_array',...
-        's','FA')
-end
 end
 
-function [s0,s,psf,fwhm,FA] = ...
-    signal_centerkspace(maxangles,esp_vec,shot_dur,shot_ratio,T1,T2,startupechoes,tsefactor)
+function [s0,mtf_xy,psf,fwhm,FA,mtf_z] = ...
+    signal_centerkspace(maxangles,esp_vec,shot_dur,shot_ratio,T1,T2,...
+    startupechoes,tsefactor)
 esp_step = esp_vec(2);
 
 % Get FA train and signal of reference tissue:
-[FA,s] = tissueSP_sweep_shotDef(esp_vec,shot_dur,shot_ratio,maxangles,startupechoes,tsefactor,...
-    T1,T2,0); % tissue 1 (of interest)
+[FA,mtf_xy,mtf_z] = tissueSP_sweep_shotDef(esp_vec,shot_dur,shot_ratio,...
+    maxangles,startupechoes,tsefactor,...
+    T1,T2); % tissue 1 (of interest)
 
 % Signal at center of k-space for low-high profile order:
 n0 = startupechoes + 1;
-s0 = s(n0);
+s0 = mtf_xy(n0);
 
 % Correct for readout bandwidth:
-s = s*sqrt(esp_step-2);
+mtf_xy = mtf_xy*sqrt(esp_step-2);
 s0 = s0*sqrt(esp_step-2); % echo spacing - 2 ms
 
 % Calculate PSF:
-s_trim = s(startupechoes+1:end); % exclude startup echoes
+s_trim = mtf_xy(startupechoes+1:end); % exclude startup echoes
 psf = abs(fftshift(fft(s_trim)));
 
 % Interpolate between points for higher accuracy:
@@ -180,8 +143,8 @@ end
 end
 
 
-function [FA,s] = tissueSP_sweep_shotDef(esp_vec,shot_dur,shot_ratio,maxangles,startupechoes,tsefactor,...
-    T1,T2,plt)
+function [FA,s,m_long] = tissueSP_sweep_shotDef(esp_vec,shot_dur,shot_ratio,maxangles,startupechoes,tsefactor,...
+    T1,T2)
 plat_dur_req = shot_dur*shot_ratio;
 alpha1 = min(maxangles);
 left = 10;
@@ -196,7 +159,7 @@ a_min = left;
 % tabulated values:
 FA_pss = pss_sweep_table(a_min); % always returns 1 + 5 angles
 % Get FA train and signal:
-[FA,s,n_max1] = epg_inverse(esp_vec,maxangles,startupechoes,FA_pss,...
+[FA,s,n_max1,m_long] = epg_inverse(esp_vec,maxangles,startupechoes,FA_pss,...
     tsefactor,T1,T2);
 % Check if left-limited:
 plateau_dur_calc = esp_first + esp*(n_max1-1);
@@ -209,7 +172,7 @@ end
 if ~left_limited
     a_min = right;
     FA_pss = pss_sweep_table(a_min);
-    [FA,s,n_max1] = epg_inverse(esp_vec,maxangles,startupechoes,FA_pss,...
+    [FA,s,n_max1,m_long] = epg_inverse(esp_vec,maxangles,startupechoes,FA_pss,...
         tsefactor,T1,T2);
     plateau_dur_calc = esp_first + esp*(n_max1-1);
         if plateau_dur_calc >= plat_dur_req
@@ -221,16 +184,8 @@ end
 % algorithm:
 if ~left_limited && ~right_limited
     req_dur = plat_dur_req;
-    [~,FA,s,~] = find_a_min(req_dur,esp_vec,...
+    [~,FA,s,~,m_long] = find_a_min(req_dur,esp_vec,...
     maxangles,left,right,startupechoes,T1,T2,tsefactor);
-end
-% Plot:
-if plt
-    figure
-    subplot(2,1,1),plot(FA)
-    xlabel('RF pulse'),ylabel('Flip angle (deg)')
-    subplot(2,1,2),plot(s)
-    xlabel('Echo'),ylabel('Signal (a.u.)')
 end
 end
 
@@ -281,7 +236,7 @@ end
 FA_pss = [180 spss_angles]; % include an initial 180 pulse
 end
 
-function [s,FZall] = epg_forward(flipangle,numberechos,esp_vec,T1,T2)
+function [s,m_long,FZall] = epg_forward(flipangle,numberechos,esp_vec,T1,T2,m0_frac)
 % Forward EPG algorithm for computing signal values
 % Output:
 %   s = signal (real-valued)
@@ -304,9 +259,10 @@ FZ = zeros(3,2*numberechos);
 FZall = cell(1,1,numberechos); % Add dephased states with each gradient application
 % Prepare array to store signal:
 s = zeros(1,numberechos);
+m_long = zeros(1,numberechos); % longitudinal magnetisation
 % Initial conditions after excitation:
-FZ(1,1) = 1;
-FZ(2,1) = 1;
+FZ(1,1) = 1*m0_frac;
+FZ(2,1) = 1*m0_frac;
 % Refocusing pulses and dephasing:
 for ech=1:numberechos
     FZ = epg_dephase(FZ,esp_vec(ech)/2,1,T1,T2); % Left crusher
@@ -314,6 +270,7 @@ for ech=1:numberechos
     FZ = epg_dephase(FZ,esp_vec(ech)/2,1,T1,T2); % Right crusher
     % Store signal corresponding to current echo:
     s(ech) = abs(FZ(1,1));
+    m_long(ech) = abs(FZ(3,1));
     % Store states:
     FZall{1,1,ech} = FZ;
 end
@@ -370,7 +327,7 @@ T = [(cos(alpha/2))^2 (sin(alpha/2))^2 sin(alpha);
 FpFnZ = T * FpFnZ;
 end
 
-function [FA,s,n_max1] = epg_inverse(esp_vec,a_max,N_startup,FA_pss,...
+function [FA,s,n_max1,m_long] = epg_inverse(esp_vec,a_max,N_startup,FA_pss,...
     TSEfactor,T1,T2)
 % Inverse EPG algorithm used to compute flip angles corresponding to given
 % signal values
@@ -388,6 +345,7 @@ max1_reached = false;
 FZ = zeros(3,2*length(esp_vec)); % array containing states
 FA = zeros(1,length(esp_vec));
 s = zeros(1,length(esp_vec));
+m_long = zeros(1,length(esp_vec));
 % Initial conditions after excitation:
 FZ(1,1) = 1;
 FZ(2,1) = 1;
@@ -401,7 +359,8 @@ for n=1:TSEfactor+N_startup+2 % extra "+1" for looping purposes
         FZ = epg_dephase(FZ,esp_vec(n)/2,1,T1,T2); % right crusher + relaxation
     else
         FA_act = FA(1:n-1); % in radians
-        s = epg_forward(FA_act*180/pi,length(FA_act),esp_vec(1:length(FA_act)),T1,T2);
+        [s,m_long] = epg_forward(FA_act*180/pi,length(FA_act),...
+            esp_vec(1:length(FA_act)),T1,T2,1);
         s_curr = s(end);
         FZ = epg_dephase(FZ,esp/2,1,T1,T2); % relaxation + left crusher
         % Define parameters to be used in calculation:
@@ -461,9 +420,10 @@ fclose('all'); % close all open files
 FA = FA*180/pi; % convert back to degrees
 FA=FA';
 s=s';
+m_long = m_long';
 end
 
-function [a_min_result,FA,s,n_max1] = find_a_min(req_dur,esp_vec,...
+function [a_min_result,FA,s,n_max1,m_long] = find_a_min(req_dur,esp_vec,...
     a_max,left,right,N_startup,T1,T2,TSEfactor)
 iteration = 0;
 plateau_dur_calc = 0; % just to get while loop executed at least once
@@ -473,7 +433,7 @@ while iteration < 12 && abs(plateau_dur_calc-req_dur) > esp/2
     mid = (left+right)/2;
     a_min = mid; % Calculate plateau duration for a_min = mid:
     FA_pss = pss_sweep_table(a_min);
-    [FA,s,n_max1] = epg_inverse(esp_vec,a_max,N_startup,FA_pss,...
+    [FA,s,n_max1,m_long] = epg_inverse(esp_vec,a_max,N_startup,FA_pss,...
     TSEfactor,T1,T2);
     plateau_dur_calc = esp_first + esp*(n_max1-1);
     if plateau_dur_calc > req_dur
