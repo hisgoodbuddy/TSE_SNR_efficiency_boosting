@@ -1,4 +1,4 @@
-function [SNReff,sig_loss_T1,mtf_xy,mtf_z,FA] = ...
+function [SNReff,SNR,scn_time,sig_loss_T1,mtf_xy,mtf_z,FA] = ...
     snr_eff_3dtse(FOV,vox,esp,tsefactor_max,T1,T2)
 
 % Description:
@@ -16,10 +16,15 @@ function [SNReff,sig_loss_T1,mtf_xy,mtf_z,FA] = ...
 % 
 % Output:
 % - SNReff = array containing SNR efficiency for given parameter space
-% - mtf = (cell) array containing the calculated modulated transfer
-%   functions
+% - SNR = array containing normalized SNR for given parameter space
+% - scn_time = array containing scan time for given parameter space (ms)
+% - sig_loss_T1 = array containing signal loss between shots due to T1
+%   effects, for given parameter space
+% - mtf_xy = (cell) array containing the calculated modulated transfer
+%       functions of transverse magnetisation
+% - mtf_z = (cell) array containing the calculated modulated transfer
+%   functions of longitudinal magnetisation
 % - FA = (cell) array containing the calculated flip angle trains (deg)
-% 
 % 
 % B. Cervantes
 % September 2015
@@ -48,6 +53,8 @@ FA = cell(length(tsefactor_range),1);
 mtf_xy = cell(length(tsefactor_range),1);
 mtf_z = cell(length(tsefactor_range),1);
 sig_loss_T1 = zeros(length(tsefactor_range),1);
+SNR = zeros(length(tsefactor_range),1);
+scn_time = zeros(length(tsefactor_range),1);
 SNReff = zeros(length(tsefactor_range),1);
 
 for ii = 1:length(tsefactor_range)
@@ -85,12 +92,16 @@ for ii = 1:length(tsefactor_range)
                                                     % due to T1 effects
 
     % Calculate SNR efficiency:
-    SNR = prod(vox)*sqrt(Nx*Ny*Nz)*sqrt(esp-2); % takes into account
+    % SNR takes into account signal loss from train of refocusing angles in
+    % first shot:
+    SNR(ii) = s0_shot1*prod(vox)*sqrt(Nx*Ny*Nz)*sqrt(esp-2); % takes into account
     % voxel size and readout bandwidth, assuming a sampling interval of
     % esp-2ms
-    SNReff(ii) = SNR/sqrt(TR(ii)*nr_shots); % SNR/sqrt(scan time)
+    scn_time(ii) = TR(ii)*nr_shots;
+    SNReff(ii) = SNR(ii)/sqrt(scn_time(ii)); % SNR/sqrt(scan time)
 end
-
+% Return SNR normalized to highest value:
+SNR = SNR/max(SNR(:));
 end
 
 function [s0,mtf_xy,psf,fwhm,FA,mtf_z] = ...
