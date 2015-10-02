@@ -1,4 +1,4 @@
-function [SNReff,SNR,scn_time,sig_loss_T1,mtf_xy,mtf_z,FA] = ...
+function [tsefactor,SNReff,SNR,scn_time,sig_loss_T1,mtf_xy,mtf_z,FA] = ...
     snr_eff_3dtse(FOV,vox,esp,tsefactor_max,T1,T2)
 
 % Description:
@@ -15,9 +15,10 @@ function [SNReff,SNR,scn_time,sig_loss_T1,mtf_xy,mtf_z,FA] = ...
 % - T1, T2 = relaxation times of reference tissue (ms)
 % 
 % Output:
+% - tsefactor = array containing TSE factor values
 % - SNReff = array containing SNR efficiency for given parameter space
 % - SNR = array containing normalized SNR for given parameter space
-% - scn_time = array containing scan time for given parameter space (ms)
+% - scn_time = array containing scan time for given parameter space (s)
 % - sig_loss_T1 = array containing signal loss between shots due to T1
 %   effects, for given parameter space
 % - mtf_xy = (cell) array containing the calculated modulated transfer
@@ -75,7 +76,7 @@ for ii = 1:length(tsefactor_range)
     TR(ii) = shot_dur + t_recv;
 
     % First shot:
-    [s0_shot1,mtf_xy_shot1,~,~,FA{ii},mtf_z_shot1] = ...
+    [FA{ii},s0_shot1,mtf_xy_shot1,mtf_z_shot1] = ...
     signal_centerkspace(maxangles,esp_vec,shot_dur,...
     shot_ratio,T1,T2,startupechoes,tsefactor(ii));
 
@@ -102,9 +103,31 @@ for ii = 1:length(tsefactor_range)
 end
 % Return SNR normalized to highest value:
 SNR = SNR/max(SNR(:));
+% Return scan time in seconds:
+scn_time = scn_time/1000;
+
+% Plot ('smooth' curves):
+% 1) SNR vs. scan time
+figure,plot(scn_time,smooth(SNR)),xlabel('Scan time (ms)'),ylabel('SNR')
+title(['FOV=',num2str(FOV(1)),'x',num2str(FOV(2)),'x',num2str(FOV(3)),...
+    ', vox=',num2str(vox(1)),'x',num2str(vox(2)),'x',num2str(vox(3)),...
+    ', esp=',num2str(esp),', T1=',num2str(T1),',T2=',num2str(T2)],...
+    'fontsize',14)
+% 2) SNR vs. TSE factor
+figure,plot(tsefactor,smooth(SNR)),xlabel('TSE factor'),ylabel('SNR')
+title(['FOV=',num2str(FOV(1)),'x',num2str(FOV(2)),'x',num2str(FOV(3)),...
+    ', vox=',num2str(vox(1)),'x',num2str(vox(2)),'x',num2str(vox(3)),...
+    ', esp=',num2str(esp),', T1=',num2str(T1),',T2=',num2str(T2)],...
+    'fontsize',14)
+% 3) SNR efficiency vs. TSE factor
+figure,plot(tsefactor,smooth(SNReff)),xlabel('TSE factor'),ylabel('SNR efficiency')
+title(['FOV=',num2str(FOV(1)),'x',num2str(FOV(2)),'x',num2str(FOV(3)),...
+    ', vox=',num2str(vox(1)),'x',num2str(vox(2)),'x',num2str(vox(3)),...
+    ', esp=',num2str(esp),', T1=',num2str(T1),',T2=',num2str(T2)],...
+    'fontsize',14)
 end
 
-function [s0,mtf_xy,psf,fwhm,FA,mtf_z] = ...
+function [FA,s0,mtf_xy,mtf_z,psf,fwhm] = ...
     signal_centerkspace(maxangles,esp_vec,shot_dur,shot_ratio,T1,T2,...
     startupechoes,tsefactor)
 
