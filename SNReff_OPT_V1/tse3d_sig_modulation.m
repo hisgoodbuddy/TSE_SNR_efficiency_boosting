@@ -1,6 +1,6 @@
 function [mtf_xy,s0,psf,fwhm,FA] = ...
-    tse3d_sig_modulation(FOV,vox,esp,tsefactor_max,T1,T2)
-
+    tse3d_sig_modulation(FOV,vox,esp,tsefactor_max, plateau ,T1,T2)
+ 
 % Description:
 %   Signal modulation of 3D TSE in a selected parameter space.
 %   Assumes low-high profile order
@@ -12,6 +12,7 @@ function [mtf_xy,s0,psf,fwhm,FA] = ...
 % - esp = echo spacing (ms)
 % - tsefactor_max = maximum TSE factor allowed for the given geometry
 % - T1, T2 = relaxation times of reference tissue (ms)
+% - plateau = plateau ratio 
 % 
 % Output:
 % - mtf = (cell) array containing the calculated modulated transfer
@@ -35,7 +36,7 @@ nr_kyz_pts = FOV(2)/vox(2) * FOV(3)/vox(3);
 maxangles = [120,160]; % assumes fixed center and max angles (here default)
 startupechoes = 5; % assumes a fixed number of startup echoes
 esp_first = 3*esp; % if ultrashort = ultra
-shot_ratio = 0.4; % fraction of shot duration of plateau length 
+shot_ratio = plateau; % fraction of shot duration of plateau length 
 
 % Define range of TSE factor:
 tsefactor_range = 2:tsefactor_max;

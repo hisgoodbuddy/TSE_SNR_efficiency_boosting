@@ -1,5 +1,5 @@
 function [tsefactor,SNReff,SNR,scn_time,sig_loss_T1,mtf_xy,mtf_z,FA] = ...
-    snr_eff_3dtse(FOV,vox,esp,tsefactor_max,T1,T2)
+    snr_eff_3dtse(FOV,vox,esp,tsefactor_max, plateau, T1,T2)
 
 % Description:
 %   Computation of SNR efficiency in 3D TSE for a subspace of varying TSE
@@ -12,6 +12,7 @@ function [tsefactor,SNReff,SNR,scn_time,sig_loss_T1,mtf_xy,mtf_z,FA] = ...
 % - vox = 3x1 vector with voxel dimensions in the order M, P, S
 % - esp = echo spacing (ms)
 % - tsefactor_max = maximum TSE factor allowed for the given geometry
+% - plateau = plateau ratio 
 % - T1, T2 = relaxation times of reference tissue (ms)
 % 
 % Output:
@@ -42,7 +43,7 @@ nr_kyz_pts = Ny*Nz;
 maxangles = [120,160]; % assumes fixed center and max angles (here default)
 startupechoes = 5; % assumes a fixed number of startup echoes
 esp_first = 3*esp; % if ultrashort = ultra
-shot_ratio = 0.4; % fraction of shot duration of plateau length 
+shot_ratio = plateau; % fraction of shot duration of plateau length 
 
 % Define range of TSE factor:
 tsefactor_range = 2:2:tsefactor_max; % min is always 2
